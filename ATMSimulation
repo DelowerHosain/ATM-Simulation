@@ -255,7 +255,6 @@ class DBUtil {
 
     public static void initializeDatabase() {
         try {
-            // First connect to MySQL server without database
             Connection conn = DriverManager.getConnection(
                     "jdbc:mysql://localhost:3306/", USER, PASSWORD);
             Statement stmt = conn.createStatement();
@@ -263,7 +262,6 @@ class DBUtil {
             stmt.close();
             conn.close();
 
-            // Now connect to atm_db and create tables
             conn = DriverManager.getConnection(URL, USER, PASSWORD);
             stmt = conn.createStatement();
 
