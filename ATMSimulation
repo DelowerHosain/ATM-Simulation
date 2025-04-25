@@ -1,0 +1,297 @@
+import java.util.*;
+import java.sql.*;
+
+public class ATMSimulation {
+    static Scanner scanner = new Scanner(System.in);
+
+    public static void main(String[] args) {
+        DBUtil.initializeDatabase();
+        while (true) {
+            System.out.println("\n=== Welcome to ATM Simulator ===");
+            System.out.println("1. Admin Login");
+            System.out.println("2. Customer Login");
+            System.out.println("3. Exit");
+            System.out.print("Choose your role: ");
+            int choice = scanner.nextInt();
+
+            switch (choice) {
+                case 1:
+                    handleAdminLogin();
+                    break;
+                case 2:
+                    handleCustomerLogin();
+                    break;
+                case 3:
+                    System.out.println("Thanks for using the ATM. Goodbye!");
+                    return;
+                default:
+                    System.out.println("Invalid choice. Try again.");
+            }
+        }
+    }
+
+    // ---------------- ADMIN -----------------
+    static void handleAdminLogin() {
+        try (Connection conn = DBUtil.getConnection()) {
+            System.out.println("\n--- Admin Panel ---");
+            Statement stmt = conn.createStatement();
+            ResultSet rs = stmt.executeQuery("SELECT * FROM admin LIMIT 1");
+
+            if (!rs.next()) { // No admin exists
+                System.out.print("No admin found. Set new Admin ID: ");
+                String newId = scanner.next();
+                System.out.print("Set new Admin Password: ");
+                String newPass = scanner.next();
+
+                PreparedStatement pstmt = conn.prepareStatement("INSERT INTO admin VALUES (?, ?)");
+                pstmt.setString(1, newId);
+                pstmt.setString(2, newPass);
+                pstmt.executeUpdate();
+                System.out.println("Admin created. Login again.");
+            } else {
+                System.out.print("Admin ID: ");
+                String id = scanner.next();
+                System.out.print("Password: ");
+                String pass = scanner.next();
+
+                PreparedStatement pstmt = conn.prepareStatement(
+                        "SELECT * FROM admin WHERE admin_id = ? AND password = ?");
+                pstmt.setString(1, id);
+                pstmt.setString(2, pass);
+                ResultSet result = pstmt.executeQuery();
+
+                if (result.next()) {
+                    runAdminMenu();
+                } else {
+                    System.out.println("Invalid credentials!");
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    static void runAdminMenu() {
+        while (true) {
+            System.out.println("\n--- Admin Menu ---");
+            System.out.println("1. View All Customer Balances");
+            System.out.println("2. Reset System (Delete all data)");
+            System.out.println("3. Logout");
+            System.out.print("Choose an option: ");
+            int option = scanner.nextInt();
+
+            switch (option) {
+                case 1:
+                    try (Connection conn = DBUtil.getConnection()) {
+                        ResultSet rs = conn.createStatement().executeQuery("SELECT * FROM customers");
+                        while (rs.next()) {
+                            System.out.println("Customer: " + rs.getString("customer_id")
+                                    + ", Balance: $" + rs.getDouble("balance"));
+                        }
+                    } catch (SQLException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+                case 2:
+                    try (Connection conn = DBUtil.getConnection()) {
+                        conn.createStatement().executeUpdate("DELETE FROM transactions");
+                        conn.createStatement().executeUpdate("DELETE FROM customers");
+                        conn.createStatement().executeUpdate("DELETE FROM admin");
+                        System.out.println("All data erased!");
+                    } catch (SQLException e) {
+                        e.printStackTrace();
+                    }
+                    return;
+                case 3:
+                    System.out.println("Admin logged out.");
+                    return;
+                default:
+                    System.out.println("Invalid choice.");
+            }
+        }
+    }
+
+    // ---------------- CUSTOMER ----------------
+    static void handleCustomerLogin() {
+        System.out.println("\n--- Customer Login ---");
+        System.out.print("Enter Customer ID: ");
+        String id = scanner.next();
+
+        try (Connection conn = DBUtil.getConnection()) {
+            ResultSet rs = conn.createStatement().executeQuery(
+                    "SELECT * FROM customers WHERE customer_id = '" + id + "'");
+
+            if (!rs.next()) {
+                System.out.print("No such customer. Register? (yes/no): ");
+                String answer = scanner.next().toLowerCase();
+                if (answer.equals("yes")) {
+                    createCustomerAccount(id);
+                }
+            } else {
+                System.out.print("Enter Password: ");
+                String pass = scanner.next();
+
+                PreparedStatement pstmt = conn.prepareStatement(
+                        "SELECT * FROM customers WHERE customer_id = ? AND password = ?");
+                pstmt.setString(1, id);
+                pstmt.setString(2, pass);
+                ResultSet result = pstmt.executeQuery();
+
+                if (result.next()) {
+                    runCustomerMenu(id);
+                } else {
+                    System.out.println("Wrong password.");
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    static void createCustomerAccount(String id) {
+        System.out.print("Set password: ");
+        String pass = scanner.next();
+
+        try (Connection conn = DBUtil.getConnection()) {
+            PreparedStatement pstmt = conn.prepareStatement(
+                    "INSERT INTO customers (customer_id, password) VALUES (?, ?)");
+            pstmt.setString(1, id);
+            pstmt.setString(2, pass);
+            pstmt.executeUpdate();
+            System.out.println("Account created! Please login.");
+        } catch (SQLException e) {
+            System.out.println("Error creating account: " + e.getMessage());
+        }
+    }
+
+    static void runCustomerMenu(String id) {
+        while (true) {
+            System.out.println("\n--- Customer Menu ---");
+            System.out.println("1. Check Balance");
+            System.out.println("2. Deposit");
+            System.out.println("3. Withdraw");
+            System.out.println("4. Logout");
+            System.out.print("Choose an option: ");
+            int option = scanner.nextInt();
+
+            try (Connection conn = DBUtil.getConnection()) {
+                switch (option) {
+                    case 1:
+                        ResultSet rs = conn.createStatement().executeQuery(
+                                "SELECT balance FROM customers WHERE customer_id = '" + id + "'");
+                        rs.next();
+                        System.out.println("Balance: $" + rs.getDouble("balance"));
+                        break;
+                    case 2:
+                        System.out.print("Deposit amount: ");
+                        double dep = scanner.nextDouble();
+                        if (dep <= 0) {
+                            System.out.println("Invalid amount!");
+                            break;
+                        }
+
+                        conn.setAutoCommit(false);
+                        PreparedStatement pstmt = conn.prepareStatement(
+                                "UPDATE customers SET balance = balance + ? WHERE customer_id = ?");
+                        pstmt.setDouble(1, dep);
+                        pstmt.setString(2, id);
+                        pstmt.executeUpdate();
+
+                        pstmt = conn.prepareStatement(
+                                "INSERT INTO transactions (customer_id, type, amount) VALUES (?, 'DEPOSIT', ?)");
+                        pstmt.setString(1, id);
+                        pstmt.setDouble(2, dep);
+                        pstmt.executeUpdate();
+                        conn.commit();
+                        System.out.println("Deposit successful!");
+                        break;
+                    case 3:
+                        System.out.print("Withdraw amount: ");
+                        double wd = scanner.nextDouble();
+
+                        conn.setAutoCommit(false);
+                        ResultSet balanceRs = conn.createStatement().executeQuery(
+                                "SELECT balance FROM customers WHERE customer_id = '" + id + "'");
+                        balanceRs.next();
+                        double balance = balanceRs.getDouble("balance");
+
+                        if (wd > balance) {
+                            System.out.println("Insufficient funds!");
+                            conn.rollback();
+                            break;
+                        }
+
+                        pstmt = conn.prepareStatement(
+                                "UPDATE customers SET balance = balance - ? WHERE customer_id = ?");
+                        pstmt.setDouble(1, wd);
+                        pstmt.setString(2, id);
+                        pstmt.executeUpdate();
+
+                        pstmt = conn.prepareStatement(
+                                "INSERT INTO transactions (customer_id, type, amount) VALUES (?, 'WITHDRAW', ?)");
+                        pstmt.setString(1, id);
+                        pstmt.setDouble(2, wd);
+                        pstmt.executeUpdate();
+                        conn.commit();
+                        System.out.println("Withdrawal successful!");
+                        break;
+                    case 4:
+                        System.out.println("Logged out.");
+                        return;
+                    default:
+                        System.out.println("Invalid option.");
+                }
+            } catch (SQLException e) {
+                System.out.println("Error: " + e.getMessage());
+            }
+        }
+    }
+}
+
+class DBUtil {
+    private static final String URL = "jdbc:mysql://localhost:3306/atm_db";
+    private static final String USER = "root";
+    private static final String PASSWORD = "1234";
+
+    public static void initializeDatabase() {
+        try {
+            // First connect to MySQL server without database
+            Connection conn = DriverManager.getConnection(
+                    "jdbc:mysql://localhost:3306/", USER, PASSWORD);
+            Statement stmt = conn.createStatement();
+            stmt.executeUpdate("CREATE DATABASE IF NOT EXISTS atm_db");
+            stmt.close();
+            conn.close();
+
+            // Now connect to atm_db and create tables
+            conn = DriverManager.getConnection(URL, USER, PASSWORD);
+            stmt = conn.createStatement();
+
+            stmt.executeUpdate("CREATE TABLE IF NOT EXISTS admin (" +
+                    "admin_id VARCHAR(50) PRIMARY KEY, " +
+                    "password VARCHAR(50) NOT NULL)");
+
+            stmt.executeUpdate("CREATE TABLE IF NOT EXISTS customers (" +
+                    "customer_id VARCHAR(50) PRIMARY KEY, " +
+                    "password VARCHAR(50) NOT NULL, " +
+                    "balance DECIMAL(15, 2) NOT NULL DEFAULT 0.0)");
+
+            stmt.executeUpdate("CREATE TABLE IF NOT EXISTS transactions (" +
+                    "transaction_id INT AUTO_INCREMENT PRIMARY KEY, " +
+                    "customer_id VARCHAR(50), " +
+                    "type ENUM('DEPOSIT', 'WITHDRAW') NOT NULL, " +
+                    "amount DECIMAL(15, 2) NOT NULL, " +
+                    "timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                    "FOREIGN KEY (customer_id) REFERENCES customers(customer_id))");
+
+            stmt.close();
+            conn.close();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static Connection getConnection() throws SQLException {
+        return DriverManager.getConnection(URL, USER, PASSWORD);
+    }
+}
